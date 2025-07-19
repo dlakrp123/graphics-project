@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>20195225 이준수 - Foggy Forest</title>
+</head>
+
+<body>
+    <script type="x-shader/x-vertex" id="phongTexFogVS">
+        varying vec3 fNormal, fWorldPos;
+        varying vec2 fTexCoord;
+
+        void main() {
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+
+            fNormal = normalize(normalMatrix * normal);
+            fWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+            fTexCoord = uv;
+        }
+    </script>
+    <script type="x-shader/x-fragment" id="phongTexFogFS">
+        precision mediump float;
+
+        uniform vec3 lightDir;
+        uniform vec4 lightAmbient, lightDiffuse, lightSpecular;
+        uniform vec4 matAmbient, matDiffuse, matSpecular;
+        uniform float matShininess;
+
+        varying vec3 fNormal, fWorldPos;
+        varying vec2 fTexCoord;
+        uniform sampler2D texImage;
+        uniform vec4 fogColor;
+
+        void main() {
+            vec4 ambient = lightAmbient * matAmbient;
+
+            vec3 N = normalize(fNormal);
+            vec3 L = normalize(lightDir);
+            float kd = max(dot(L, N), 0.0);
+            vec4 diffuse = kd * lightDiffuse * matDiffuse;
+
+            vec3 V = normalize(fWorldPos);
+            vec3 H = normalize(L + V);
+            float ks = pow(max(dot(N, H), 0.0), matShininess);
+            vec4 specular = ks * lightSpecular * matSpecular;
+
+            float fogDepth = length(cameraPosition - fWorldPos);
+            float fogFactor = smoothstep(1.0, 7.0, fogDepth);
+
+            vec4 color = (ambient + diffuse + specular) * texture2D(texImage, fTexCoord);
+            gl_FragColor = mix(color, fogColor, fogFactor);
+            gl_FragColor.a = 1.0;
+        }
+    </script>
+    <script type="x-shader/x-vertex" id="phongFogVS">
+        varying vec3 fNormal, fWorldPos;
+
+        void main() {
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+
+            fNormal = normalize(normalMatrix * normal);
+            fWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+        }
+    </script>
+    <script type="x-shader/x-fragment" id="phongFogFS">
+        precision mediump float;
+
+        uniform vec3 lightDir;
+        uniform vec4 lightAmbient, lightDiffuse, lightSpecular;
+        uniform vec4 matAmbient, matDiffuse, matSpecular;
+        uniform float matShininess;
+
+        varying vec3 fNormal, fWorldPos;
+        uniform vec4 fogColor;
+
+        void main() {
+            vec4 ambient = lightAmbient * matAmbient;
+
+            vec3 N = normalize(fNormal);
+            vec3 L = normalize(lightDir);
+            float kd = max(dot(L, N), 0.0);
+            vec4 diffuse = kd * lightDiffuse * matDiffuse;
+
+            vec3 V = normalize(cameraPosition - fWorldPos);
+            vec3 H = normalize(L + V);
+            float ks = pow(max(dot(N, H), 0.0), matShininess);
+            vec4 specular = ks * lightSpecular * matSpecular;
+
+            float fogDepth = length(cameraPosition - fWorldPos);
+            float fogFactor = smoothstep(1.0, 7.0, fogDepth);
+
+            vec4 color = ambient + diffuse + specular;
+            gl_FragColor = mix(color, fogColor, fogFactor);
+            gl_FragColor.a = 1.0;
+        }
+    </script>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        let scene, camera, renderer;
+        let ground, glass = [], trunk = [], foliage = [];
+        var lightDir = [3.0, 2.0, 3.0];
+        var cameraPos = new THREE.Vector3(0, 2, 10), cameraRotY = 0;
+        let objectPos = [], grasses = [];
+        const fogColor = [0.2, 0.2, 0.2, 1];
+        var prevXPos = 3, prevTime = new Date();
+
+        let box;
+
+        init();
+        animate();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(fogColor[0], fogColor[1], fogColor[2]);
+
+            const aspectRatio = window.innerWidth / window.innerHeight;
+            camera = new THREE.PerspectiveCamera(100, aspectRatio, 0.1, 50);
+            camera.position.x = cameraPos.x;
+            camera.position.y = cameraPos.y;
+            camera.position.z = cameraPos.z;
+            camera.lookAt(0, 0, 0);
+
+            renderer = new THREE.WebGLRenderer();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            const texture = new THREE.TextureLoader().load('images/crate.bmp');
+            const texMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    lightDir: { value: lightDir },
+                    lightAmbient: { value: [0.0, 0.0, 0.0, 1.0] },
+                    lightDiffuse: { value: [1.0, 1.0, 1.0, 1.0] },
+                    lightSpecular: { value: [1.0, 1.0, 1.0, 1.0] },
+                    matAmbient: { value: [1.0, 1.0, 1.0, 1.0] },
+                    matDiffuse: { value: [1.0, 1.0, 1.0, 1.0] },
+                    matSpecular: { value: [1.0, 1.0, 1.0, 1.0] },
+                    matShininess: { value: 100 },
+                    texImage: { value: texture },
+                    fogColor: { value: fogColor },
+                },
+                vertexShader: document.getElementById('phongTexFogVS').textContent,
+                fragmentShader: document.getElementById('phongTexFogFS').textContent,
+            });
+
+            const material = new THREE.ShaderMaterial({
+                uniforms: {
+                    lightDir: { value: lightDir },
+                    lightAmbient: { value: [0.0, 0.0, 0.0, 1.0] },
+                    lightDiffuse: { value: [1.0, 1.0, 1.0, 1.0] },
+                    lightSpecular: { value: [1.0, 1.0, 1.0, 1.0] },
+                    matAmbient: { value: [1.0, 1.0, 1.0, 1.0] },
+                    matDiffuse: { value: [1.0, 1.0, 1.0, 1.0] },
+                    matSpecular: { value: [1.0, 1.0, 1.0, 1.0] },
+                    matShininess: { value: 100 },
+                    fogColor: { value: fogColor },
+                },
+                vertexShader: document.getElementById('phongFogVS').textContent,
+                fragmentShader: document.getElementById('phongFogFS').textContent,
+                side: THREE.DoubleSide,
+                depthTest: true,
+                transparent: true,
+            });
+
+            const groundVertices = new Float32Array([
+                -50, 0, -50,
+                -50, 0, 50,
+                50, 0, 50,
+                -50, 0, -50,
+                50, 0, 50,
+                50, 0, -50,
+            ]);
+
+            const groundNormals = new Float32Array([
+                0, 1, 0,
+                0, 1, 0,
+                0, 1, 0,
+                0, 1, 0,
+                0, 1, 0,
+                0, 1, 0,
+            ]);
+
+            const groundUVs = new Float32Array([
+                -20, 20,
+                -20, -20,
+                20, -20,
+                -20, 20,
+                20, -20,
+                20, 20,
+            ]);
+
+            const groundGeometry = new THREE.BufferGeometry();
+            groundGeometry.setAttribute('position', new THREE.Float32BufferAttribute(groundVertices, 3));
+            groundGeometry.setAttribute('normal', new THREE.Float32BufferAttribute(groundNormals, 3));
+            groundGeometry.setAttribute('uv', new THREE.Float32BufferAttribute(groundUVs, 2));
+
+            const texture2 = new THREE.TextureLoader().load('images/green-grass.bmp');
+            texture2.wrapS = THREE.RepeatWrapping;
+            texture2.wrapT = THREE.RepeatWrapping;
+            ground = new THREE.Mesh(groundGeometry, texMaterial.clone());
+            ground.material.uniforms.texImage.value = texture2;
+            scene.add(ground);
+
+            
+            const grassVertices = new Float32Array([
+                0.0, 0.0, 0.0,
+                0.125, 0.5, 0.125,
+                0.25, 0.0, 0.25,
+                0.375, 1.0, 0.375,
+                0.5, 0.0, 0.5
+            ]);
+
+            const grassNormals = new Float32Array([
+                0, 1, 0,
+                0, 1, 0,
+                0, 1, 0,
+                0, 1, 0,
+                0, 1, 0,
+                0, 1, 0,
+            ]);
+
+            const grassIndices = [
+                0, 1, 2,
+                2, 3, 4,
+            ];
+
+            const grassGeometry = new THREE.BufferGeometry();
+            grassGeometry.setIndex(grassIndices);
+            grassGeometry.setAttribute('position', new THREE.Float32BufferAttribute(grassVertices, 3));
+            grassGeometry.setAttribute('normal', new THREE.Float32BufferAttribute(grassNormals, 3));
+
+            for (let i = 0; i < 10000; i++) {
+                let grass = new THREE.Mesh(grassGeometry, material.clone());
+                grass.material.uniforms.matDiffuse.value = [0.1, 0.3, 0.1, 1.0];
+                grass.position.set(Math.random() * 100 - 50, 0, Math.random() * 100 - 50);
+                grasses.push(grass);
+                scene.add(grass);
+            }
+
+            const trunkNormals = [];
+            const foliageNormals = [];
+ 
+            const trunkGeometry = new THREE.CylinderGeometry(0.5, 0.5, 5, 12);
+            trunkGeometry.computeVertexNormals();
+            trunkNormals.push(...trunkGeometry.attributes.normal.array);
+
+            const foliageGeometry = new THREE.SphereGeometry(2, 12, 12);
+            foliageGeometry.computeVertexNormals();
+            foliageNormals.push(...foliageGeometry.attributes.normal.array);
+
+            const foliageColors = [
+                new THREE.Vector4(0.1, 0.6, 0.1, 1.0), // Green
+                new THREE.Vector4(0.6, 0.1, 0.6, 1.0), // Purple
+                new THREE.Vector4(0.8, 0.5, 0.0, 1.0), // Orange
+                new THREE.Vector4(1.0, 0.0, 0.0, 1.0)  // Red
+            ];
+
+            trunkGeometry.setAttribute('normal', new THREE.Float32BufferAttribute(trunkNormals, 3));
+            foliageGeometry.setAttribute('normal', new THREE.Float32BufferAttribute(foliageNormals, 3));
+
+            for (let i = 0; i < 200; i++) {
+                trunk = new THREE.Mesh(trunkGeometry, material.clone());
+                trunk.material.uniforms.matDiffuse.value = new THREE.Vector4(0.55, 0.27, 0.07, 1.0); // Brown
+                foliage = new THREE.Mesh(foliageGeometry, material.clone());
+                foliage.material.uniforms.matDiffuse.value = foliageColors[Math.floor(Math.random() * foliageColors.length)];
+                foliage.position.y = 4;
+
+                const tree = new THREE.Group();
+                tree.add(trunk);
+                tree.add(foliage);
+                tree.position.set(Math.random() * 100 - 50, 0, Math.random() * 100 - 50);
+                objectPos.push(tree.position); 
+                scene.add(tree);
+            }
+
+            const boxGeometry = new THREE.BoxGeometry(1, 1, 1);
+            box = new THREE.Mesh(boxGeometry, texMaterial.clone());
+            box.material.uniforms.texImage.value = texture;
+
+            let boxPosition;
+            do {
+                boxPosition = new THREE.Vector3(Math.random() * 30, 0.5, Math.random() * 30);
+            } while (notOverlap(boxPosition, objectPos));
+
+            box.position.copy(boxPosition);
+            scene.add(box);
+
+            window.addEventListener('resize', onWindowResize);
+            window.onkeydown = function (event) {
+                const key = String.fromCharCode(event.keyCode);
+                const axisY = new THREE.Vector3(0, 1, 0);
+                const direction = new THREE.Vector3();
+                var newX, newZ;
+                switch (key) {
+                    case 'a':
+                    case 'A':
+                        cameraRotY += 0.1;
+                        camera.rotateOnWorldAxis(axisY, 0.1);
+                        break;
+                    case 'd':
+                    case 'D':
+                        cameraRotY -= 0.1;
+                        camera.rotateOnWorldAxis(axisY, -0.1);
+                        break;
+                    case 's':
+                    case 'S':
+                        camera.getWorldDirection(direction);
+                        newX = cameraPos.x - 0.2 * direction.x;
+                        newZ = cameraPos.z - 0.2 * direction.z;
+                        if (newX > -30 && newX < 30 && newZ > -30 && newZ < 30 && !detectCollision(newX, newZ)) {
+                            camera.position.x = cameraPos.x = newX;
+                            camera.position.z = cameraPos.z = newZ;
+                        }
+                        break;
+                    case 'W':
+                    case 'w':
+                        camera.getWorldDirection(direction);
+                        newX = cameraPos.x + 0.2 * direction.x;
+                        newZ = cameraPos.z + 0.2 * direction.z;
+                        if (newX > -30 && newX < 30 && newZ > -30 && newZ < 30 && !detectCollision(newX, newZ)) {
+                            camera.position.x = cameraPos.x = newX;
+                            camera.position.z = cameraPos.z = newZ;
+                        }
+                        break;
+                }
+            }
+        }
+
+        function onWindowResize() {
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            const aspectRatio = window.innerWidth / window.innerHeight;
+            camera.aspect = aspectRatio;
+            camera.updateProjectionMatrix();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            let currTime = new Date();
+            let elapsedTime = currTime.getTime() - prevTime.getTime();
+            prevTime = currTime;
+
+            grasses.forEach((grass, index) => {
+                grass.position.x = grass.position.x + Math.sin(currTime.getTime() * 0.005 + index) * 0.005;
+                grass.material.uniforms.lightDir.value = lightDir;
+            });
+
+            ground.material.uniforms.lightDir.value = lightDir;
+
+            renderer.render(scene, camera);
+        }
+
+        function detectCollision(newPosX, newPosZ) {
+            for (var index = 0; index < objectPos.length; index++) {
+                if (Math.abs(newPosX - objectPos[index].x) < 0.8 && Math.abs(newPosZ - objectPos[index].z) < 0.8) {
+                    // Check if the tree is purple
+                    const tree = scene.getObjectByProperty('position', objectPos[index]);
+                    const foliage = tree.children.find(child => child.geometry.type === 'SphereGeometry');
+                    if (foliage.material.uniforms.matDiffuse.value.equals(new THREE.Vector4(0.6, 0.1, 0.6, 1.0))) { // Purple
+                        alert("보라색 나무는 위험한 나무입니다. 다가가지 마세요!");
+                        moveCameraBack(newPosX, newPosZ);
+                        return true;
+                    }
+                    else
+                        return true;
+                }
+            }
+
+            if (Math.abs(newPosX - box.position.x) < 0.5 && Math.abs(newPosZ - box.position.z) < 0.5) {
+                alert("임무 완료!");
+                return true;
+            }
+
+            return false;
+        }
+
+        function notOverlap(position, objects) {
+            for (const obj of objects) {
+                if (position.distanceTo(obj) < 1.0) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function moveCameraBack(posX, posZ) {
+            const direction = new THREE.Vector3(posX - cameraPos.x, 0, posZ - cameraPos.z).normalize();
+            cameraPos.x -= direction.x * 3;
+            cameraPos.z -= direction.z * 3;
+            camera.position.x = cameraPos.x;
+            camera.position.z = cameraPos.z;
+        }
+    </script>
+</body>
+
+</html>
